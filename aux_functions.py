@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import openai
+import concurrent.futures
 import os
 
 df_val = pd.read_csv('datos procesados/valores.csv')
@@ -160,16 +161,18 @@ def component_prompt(row):
 
     return response.choices[0].message.content  # Return the content of the assistant's response
 
-def excecute_prompt(prompt):
+def excecute_prompt(prompt, temp=0.6):
     """
     Executes a chat prompt with GPT-3 and retrieves the response.
 
     Args:
         prompt (str): Prompt for GPT-3 chat interaction.
+        temp (int): The temperature parameter of the creation of the comment.
 
     Returns:
         str: Generated response from GPT-3.
     """
+    # print(f'\nEXCECUTE_PROMPT : {prompt}, T = {temp}')
 
     # Add context for the interaction with GPT-3
     context = {"role": "system",
@@ -195,12 +198,11 @@ def excecute_prompt(prompt):
     # Call OpenAI API to generate the response based on the conversation history
     response = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",
-        messages=messages
+        messages=messages,
+        temperature=temp
     )
 
     return response.choices[0].message.content  # Return the content of the assistant's response
-
-
 
 def generate_comment(id, df_general=dfi, df_values=df_val):
     """
@@ -214,7 +216,7 @@ def generate_comment(id, df_general=dfi, df_values=df_val):
             Defaults to df_val.
 
     Returns:
-        tuple: A tuple containing the generated response comment and the corresponding prompt.
+        tuple: A tuple containing the generated response comments and the corresponding prompt.
 
     Raises:
         None
@@ -241,7 +243,39 @@ def generate_comment(id, df_general=dfi, df_values=df_val):
     #If any limit is surpassed
     else:
         prompt = generate_prompt(gen, val)
-        response = excecute_prompt(prompt)
+        # comment = excecute_prompt(prompt)
+        comments = excecute_prompt_parallel(prompt)
     # response = ''
 
-    return (response, prompt)
+    return (comments, prompt)
+
+def excecute_prompt_parallel(prompt):
+    """
+    Executes prompt generation requests in parallel with different temperatures.
+
+    Args:
+        prompt (str): The prompt to be used for each request.
+
+    Returns:
+        results: A list of response objects containing the generated comments.
+
+    Raises:
+        None
+
+    """
+    # print(f'\nEXCECUTE_PROMPT_PARALLEL : {prompt}')
+    # Temperature values for each parallel request
+    temperatures = [0.35, 0.6, 0.85]
+
+    # Configure the number of threads or processes for parallelization
+    num_threads = 3
+
+    # Execute the requests in parallel with different temperatures
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        # Submit the tasks for generating comments
+        results = [executor.submit(excecute_prompt, p, temp) for p, temp in zip([prompt]*len(temperatures), temperatures)]
+
+        # Retrieve the generated comments
+        comments = [result.result() for result in concurrent.futures.as_completed(results)]
+
+    return comments
