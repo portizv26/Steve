@@ -161,7 +161,7 @@ def component_prompt(row):
 
     return response.choices[0].message.content  # Return the content of the assistant's response
 
-def excecute_prompt(prompt, temp=0.6):
+def excecute_prompt(prompt, temp=0.6, n=1):
     """
     Executes a chat prompt with GPT-3 and retrieves the response.
 
@@ -176,7 +176,7 @@ def excecute_prompt(prompt, temp=0.6):
 
     # Add context for the interaction with GPT-3
     context = {"role": "system",
-                "content": "Eres un ingeniero mecanico, especialista en equipos mineros y debes realizar diagnosticos precisos sobre las medidas de un equipo, entregando comentarios breves respecto a los análisis de aceite realizados y recomendaciones concretas de mantención. Tus respuestas deben ser de 150 palabras o menos"}
+                "content": "Eres un ingeniero mecanico, especialista en equipos mineros y debes realizar diagnosticos precisos sobre las medidas de un equipo, entregando comentarios breves respecto a los análisis de aceite realizados y recomendaciones concretas de mantención. Considera que al haber presencia de Zinc, Bario, Boro, Calcio, Molibdeno, Magnesio o Fósforo en el aceite no se debe sugerir cambio de componentes o de aceite. Tus respuestas deben ser de 150 palabras o menos."}
     messages = [context]
 
     # Set previous interaction to refine results
@@ -199,10 +199,14 @@ def excecute_prompt(prompt, temp=0.6):
     response = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",
         messages=messages,
-        temperature=temp
+        temperature=temp,
+        n=n
     )
 
-    return response.choices[0].message.content  # Return the content of the assistant's response
+    if n==1:
+        return response.choices[0].message.content  # Return the content of the assistant's response
+    else:
+        return [response.choices[i].message.content for i in range(n)]
 
 def generate_comment(id, df_general=dfi, df_values=df_val):
     """
@@ -237,8 +241,13 @@ def generate_comment(id, df_general=dfi, df_values=df_val):
 
     # If no limit is surpassed
     if val.shape[0] == 0:
-        response = "Niveles de desgaste junto a contaminación externa dentro de los límites permisibles para el servicio.\nGrado de viscocidad y degradación normal de lubricante.\nContinuar con monitoreo de lubricante y componente según plan de mantenimiento."""
-        prompt = ''
+        #if refrigerante:
+        if gen.name_component.str.contains('REFRI').values[0]:
+            comments = "Se aprecia estabilidad en contaminantes metálicos, en niveles normales de operación, se aprecia punto de congelamiento y mezcla de etilenglicol aceptables, manteniéndose dentro de límites permitidos para la operación. Monitorear nivel de refrigerante de manera frecuente, mantener seguimiento según plan de mantenimiento para evaluar tendencias en desgaste y contaminación."""
+            prompt = ''
+        else:
+            comments = "Niveles de desgaste junto a contaminación externa dentro de los límites permisibles para el servicio.\nGrado de viscocidad y degradación normal de lubricante.\nContinuar con monitoreo de lubricante y componente según plan de mantenimiento."""
+            prompt = ''
 
     #If any limit is surpassed
     else:
@@ -270,12 +279,17 @@ def excecute_prompt_parallel(prompt):
     # Configure the number of threads or processes for parallelization
     num_threads = 3
 
-    # Execute the requests in parallel with different temperatures
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        # Submit the tasks for generating comments
-        results = [executor.submit(excecute_prompt, p, temp) for p, temp in zip([prompt]*len(temperatures), temperatures)]
+    try:
+        # Execute the requests in parallel with different temperatures
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            # Submit the tasks for generating comments
+            results = [executor.submit(excecute_prompt, p, temp) for p, temp in zip([prompt]*len(temperatures), temperatures)]
 
-        # Retrieve the generated comments
-        comments = [result.result() for result in concurrent.futures.as_completed(results)]
+            # Retrieve the generated comments
+            comments = [result.result() for result in concurrent.futures.as_completed(results)]
 
-    return comments
+        return comments
+    
+    except:
+        comments = excecute_prompt(prompt, n=3)
+        return comments
